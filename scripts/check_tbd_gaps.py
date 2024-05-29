@@ -77,13 +77,13 @@ def main(args):
             gap_times['t1'] = bad_segments['t1'][np.append(np.where(np.diff(bad_segments['t0'])>pd.Timedelta(hours=12))[0], len(bad_segments)-1)].copy().reset_index(drop=True)
             t_lag = (pd.to_datetime(datetime.now(timezone.utc)).replace(tzinfo=None)-segment_info['t1'][len(segment_info)-1]).total_seconds()/60/60
 
-            print(f'{deployment} data status:\n')
+            print(f'*****  {deployment} data status:\n')
 
             if t_lag < args.max_lag and len(gap_times)==0:
                 print('No data gap issues noted.\n')
 
             if t_lag > args.max_lag:
-                print(f"Latest data {segment_info['t1'][len(segment_info)-1].strftime('%Y-%m-%dT%H:%M')} ({round(t_lag,1)} hours)")
+                print(f"Latest data {segment_info['t1'][len(segment_info)-1].strftime('%Y-%m-%dT%H:%M')} ({round(t_lag,1)} hours)\n")
 
             for i in range(len(gap_times)):
                 print(f"Gap from {gap_times['t0'][i].strftime('%Y-%m-%dT%H:%M')} to {gap_times['t1'][i].strftime('%Y-%m-%dT%H:%M')}")
