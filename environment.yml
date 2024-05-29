@@ -1,4 +1,4 @@
-name: gliderbonuscontent
+name: glider-bonus-content
 channels:
   - conda-forge
   - defaults

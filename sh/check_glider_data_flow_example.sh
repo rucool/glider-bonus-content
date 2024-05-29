@@ -14,7 +14,7 @@ fi
 EXECDIR=/PATH/TO/REPO 
 EMAIL='email1@domain.edu, email2@domain.com, etc@domain.ext'
 
-conda activate bonusglidercontent
+conda activate glider-bonus-content
 
 TODAY=`date +%Y-%m-%d`
 YEAR=`date +%Y`
