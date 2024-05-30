@@ -34,12 +34,12 @@ def main(args):
         deployment_year = deployment_time[:4]   
         if args.check_tbds:
             if not args.slocum_dir:
-                print(f'Data directory not provided, unable to check tbd availability for {deployment}.')
+                print(f'Data directory not provided, unable to check tbd availability for {deployment}.\n')
                 args.check_tbds=False
             else:
                 deployment_directory = os.path.join(args.slocum_dir, 'deployments', deployment_year, deployment)
                 if not os.path.isdir(deployment_directory):
-                    print(f'Deployment directory {deployment_directory} does not exist, check deployment name and/or data directory provided. Will not check for tbd availability.')
+                    print(f'Deployment directory {deployment_directory} does not exist, check deployment name and/or data directory provided. Will not check for tbd availability.\n')
                     args.check_tbds=False
 
         try:
@@ -66,25 +66,31 @@ def main(args):
                 segment_info['nDepth'][f] = np.sum(np.logical_and(segment_data['depth'].data!=0, ~np.isnan(segment_data['depth'].data)))
                 segment_info['nTemp'][f] = np.sum(np.logical_and(segment_data['sci_water_temp'].data!=0, ~np.isnan(segment_data['sci_water_temp'].data)))
         except:
-            print(f'Issue reading from dataset {deployment}-trajectory-raw-rt using erddapy')
+            print(f'Issue reading from dataset {deployment}-trajectory-raw-rt using erddapy.\n\n')
             continue
 
         try:
             segment_info = segment_info.sort_values(by='t0', ignore_index=True)
             bad_segments = segment_info[np.logical_and(segment_info['nTemp']==0, segment_info['tLength']>1)].copy().reset_index(drop=True)
-            gap_times = pd.DataFrame()
-            gap_times['t0'] = bad_segments['t0'][np.append(0, np.where(np.diff(bad_segments['t0'])>pd.Timedelta(hours=12))[0]+1)].copy().reset_index(drop=True)
-            gap_times['t1'] = bad_segments['t1'][np.append(np.where(np.diff(bad_segments['t0'])>pd.Timedelta(hours=12))[0], len(bad_segments)-1)].copy().reset_index(drop=True)
+            if len(bad_segments)>0:
+                gap_times = pd.DataFrame()
+                gap_times['t0'] = bad_segments['t0'][np.append(0, np.where(np.diff(bad_segments['t0'])>pd.Timedelta(hours=12))[0]+1)].copy().reset_index(drop=True)
+                gap_times['t1'] = bad_segments['t1'][np.append(np.where(np.diff(bad_segments['t0'])>pd.Timedelta(hours=12))[0], len(bad_segments)-1)].copy().reset_index(drop=True)
             t_lag = (pd.to_datetime(datetime.now(timezone.utc)).replace(tzinfo=None)-segment_info['t1'][len(segment_info)-1]).total_seconds()/60/60
 
             print(f'*****  {deployment} data status:\n')
-
-            if t_lag < args.max_lag and len(gap_times)==0:
+            
+            if t_lag < args.max_lag and len(bad_segments)==0:
                 print('No data gap issues noted.\n')
-
+                continue
+            
             if t_lag > args.max_lag:
                 print(f"Latest data {segment_info['t1'][len(segment_info)-1].strftime('%Y-%m-%dT%H:%M')} ({round(t_lag,1)} hours)\n")
-
+            
+            if len(bad_segments)==0:
+                print('No gaps that appear to be from excluded tbds.\n')
+                continue
+            
             for i in range(len(gap_times)):
                 print(f"Gap from {gap_times['t0'][i].strftime('%Y-%m-%dT%H:%M')} to {gap_times['t1'][i].strftime('%Y-%m-%dT%H:%M')}")
                 print('Includes segments')
@@ -101,7 +107,7 @@ def main(args):
                     print('\n'.join(list(segment_info['source_file'][np.logical_and(segment_info['t0']>=gap_times['t0'][i], segment_info['t0']<gap_times['t1'][i])])))
                 print('\n')
         except:
-            print(f'Issue getting data gap information for {deployment}.')
+            print(f'Issue getting data gap information for {deployment}.\n\n')
             continue
     
     return
