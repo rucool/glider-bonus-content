@@ -140,10 +140,10 @@ def main(args):
                             tbd = glob.glob(os.path.join(deployment_directory, 'data', 'in', 'binary', 'tbd', '-'.join(sf.split('-')[:5])+'.*'))
                             if len(tbd)==0:
                                 tbd = glob.glob(os.path.join(deployment_directory, 'data', 'in', 'binary', 'tbd', sf.split('(')[-1][:-1]+'.*'))
-                                if len(tbd)>0:
-                                    tbdtxt += ' (FOUND)'
-                                else:
-                                    tbdtxt += ' (not found)'
+                            if len(tbd)>0:
+                                tbdtxt += ' (FOUND)'
+                            else:
+                                tbdtxt += ' (not found)'
                     if tbdtxt and scitxt:
                         problem_info = ', '.join([tbdtxt, scitxt])
                     elif tbdtxt:
