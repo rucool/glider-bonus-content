@@ -64,7 +64,7 @@ def main(args):
                 ru_erddap_sci.variables = ['profile_time']
 
             for f in range(len(segment_info)):
-                print(f'{f}/{len(segment_info)}')
+                # print(f'{f}/{len(segment_info)}')
                 ru_erddap.constraints = {'source_file=': segment_info['source_file'][f]}
                 segment_data = ru_erddap.to_xarray()
                 segment_info['t0'][f] = pd.to_datetime(min(segment_data['time'].data))
