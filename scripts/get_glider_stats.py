@@ -151,6 +151,8 @@ def main(args):
             for x in ru_new['deployment_name']:
                 print(x)
             print('\n')
+    
+    print(f"Note these statistics include {sum(deployment_status['notes']=='failed deployment')} failed deployments.")
 
     deployment_status.to_csv(fname, index=False)
 
