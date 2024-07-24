@@ -15,7 +15,7 @@ import os
 import sys
 
 def main(args):
-    fname = '/Users/nazzaro/Downloads/glider_deployment_data_status.csv'
+    fname = args.status_file
 
     ru_gliders = ['maracoos_02', 'maracoos_04', 'maracoos_05']
     for ru in range(100):
@@ -154,10 +154,12 @@ def main(args):
     
     print(f"Note these statistics include {sum(deployment_status['notes']=='failed deployment')} failed deployments.")
 
-    deployment_status.to_csv(fname, index=False)
+    if os.path.isdir(os.path.split(fname)[0]):
+        deployment_status.to_csv(fname, index=False)
+        print(f'More detailed info available in {fname}.')
+    else:
+        print(f'Unable to write detailed info to {fname}, directory does not exist.')
 
-    print(f'More detailed info available in {fname}.')
-    
     return
 
 if __name__ == '__main__':
