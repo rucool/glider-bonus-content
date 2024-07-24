@@ -104,7 +104,7 @@ def main(args):
                 new_deployments = pd.concat((new_deployments, add_deployment), ignore_index=True)
 
         for c in ['ru_rt','ru_delayed','ru_either','dac_rt','dac_delayed','dac_either']:
-            new_deployments[c][new_deployments[c]<0]=0
+            new_deployments.loc[new_deployments[c]<0, c]=0
 
     print(f"{sum(deployment_status['dac_either'])}/{len(deployment_status)} datasets on the DAC ({sum(deployment_status['dac_delayed'])} delayed-mode)\n")
 
@@ -129,9 +129,9 @@ def main(args):
                 print(x)
             print('\n')
 
-    print(f"{sum(deployment_status['ru_either'])}/{len(deployment_status)} datasets on the DAC ({sum(deployment_status['ru_delayed'])} delayed-mode)\n")
+    print(f"{sum(deployment_status['ru_either'])}/{len(deployment_status)} datasets on the RU ERDDAP ({sum(deployment_status['ru_delayed'])} delayed-mode)\n")
 
-    print(f"{sum(deployment_status['ru_either'][deployment_status['ru_glider']])}/{sum(deployment_status['ru_glider'])} Rutgers datasets on the DAC ({sum(deployment_status['ru_delayed'][deployment_status['ru_glider']])} delayed-mode)\n")
+    print(f"{sum(deployment_status['ru_either'][deployment_status['ru_glider']])}/{sum(deployment_status['ru_glider'])} Rutgers datasets on the RU ERDDAP ({sum(deployment_status['ru_delayed'][deployment_status['ru_glider']])} delayed-mode)\n")
 
     if os.path.isfile(fname):
         ru_new = new_deployments[new_deployments['ru_either']==1]
