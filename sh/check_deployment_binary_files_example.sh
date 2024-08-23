@@ -88,9 +88,9 @@ do
         continue;
     fi
 
-    grep -r 'fileopen_time' $DATA_DIR > ${BIN_FILE_DIR}/${deployment}_binary_open_times.txt
+    grep -r -a 'fileopen_time' $DATA_DIR > ${BIN_FILE_DIR}/${deployment}_binary_open_times.txt
     chmod 664 ${BIN_FILE_DIR}/${deployment}_binary_open_times.txt
-    python ${REPO_DIR}/scripts/get_binary_info.py -d ${GLIDER_DATA_HOME} $deployment
+    python ${REPO_DIR}/scripts/get_binary_info.py -d $deployment_root $deployment
 
 done
 

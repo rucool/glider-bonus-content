@@ -56,7 +56,7 @@ def main(args):
 
         for i in binary_list.index:
             fullfile, t = binary_list['line'][i].replace(' ','').split(':fileopen_time:')
-            binary_list.loc[i,'time'] = pd.to_datetime(t, format='%a_%b_%d_%H:%M:%S_%Y')
+            binary_list.loc[i,'time'] = pd.to_datetime(t.replace('__','_0'), format='%a_%b_%d_%H:%M:%S_%Y')
             datadir, file = os.path.split(fullfile)
             if datadir=='' or datadir=='.':
                 datadir = cwd
