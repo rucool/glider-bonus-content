@@ -31,10 +31,11 @@ def main(args):
 
         deployment_time = deployment.split('-')[-1]
         if not binary_list_file:
-            binary_list_file = os.path.join(slocumdir, deployment_time[:4], 'data', 'in', 'binary', f'{deployment}_binary_open_times.txt')
+            binary_list_file = os.path.join(slocumdir, deployment_time[:4], deployment, 'data', 'in', 'binary', f'{deployment}_binary_open_times.txt')
 
         if not os.path.isfile(binary_list_file):
-            print(f'{binary_list_file} not found, skipping deployment.\n\n')
+            print(f'{binary_list_file} not found, skipping deployment.\n')
+            continue
 
         deployment_info = requests.get(f'{glider_api}deployments/?deployment={deployment}').json()['data'][0]
 

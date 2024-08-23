@@ -3,10 +3,10 @@
 . ~/.bashrc;
 
 # Deployment root path
-deployment_root="${GLIDER_DATA_HOME}/deployments";
-REPO_DIR=/home/glideradm/code/glider-bonus-content
+deployment_root=/PATH/TO/BASE/GLIDER/DIR;
+REPO_DIR=/PATH/TO/REPO
 conda_env='glider-bonus-content';
-DATA_DIR=$(pwd)
+DATA_DIR=$(pwd) # default
 
 # Usage message
 USAGE="
@@ -49,18 +49,18 @@ deployments="$@";
 
 if [ -z "$deployments" ]
 then
-    info_msg "No deployments selected for processing";
+    echo "No deployments selected for processing";
     exit 0;
 fi
 
 if [ ! -d "$deployment_root" ]
 then
-    error_msg "Invalid destination specified: $deployment_root";
+    echo "Invalid destination specified: $deployment_root";
     exit 1;
 fi
 
 # Activate the conda environment
-info_msg "Activing conda environment: $conda_env";
+echo "Activing conda environment: $conda_env";
 conda activate $conda_env;
 
 [ "$?" -ne 0 ] && exit 1;
@@ -76,20 +76,21 @@ do
     d_path="${deployment_root}/$deployment_dir";
     if [ ! -d "$d_path" ]
     then
-        warn_msg "Deployment path does not exist: $d_path";
+        echo "Deployment path does not exist: $d_path";
         continue;
     fi
 
     BIN_FILE_DIR="${d_path}/data/in/binary";
-    info_msg "Binary file destination directory: $BIN_FILE_DIR";
+    echo "Binary file destination directory: $BIN_FILE_DIR";
     if [ ! -d "$BIN_FILE_DIR" ]
     then
-        warn_msg "Binary file destination directory does not exist: $BIN_FILE_DIR";
+        echo "Binary file destination directory does not exist: $BIN_FILE_DIR";
         continue;
     fi
 
     grep -r 'fileopen_time' $DATA_DIR > ${BIN_FILE_DIR}/${deployment}_binary_open_times.txt
-    ${REPO_DIR}/scripts/get_binary_info.py -d ${GLIDER_DATA_HOME} $deployment
+    chmod 664 ${BIN_FILE_DIR}/${deployment}_binary_open_times.txt
+    python ${REPO_DIR}/scripts/get_binary_info.py -d ${GLIDER_DATA_HOME} $deployment
 
 done
 
