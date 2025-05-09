@@ -17,7 +17,7 @@ import sys
 def main(args):
     fname = args.status_file
 
-    ru_gliders = ['maracoos_02', 'maracoos_04', 'maracoos_05']
+    ru_gliders = ['maracoos_02', 'maracoos_04', 'maracoos_05', 'ru25d', 'ru26d']
     for ru in range(100):
         ru_gliders.append('ru'+str(ru).zfill(2))
 
