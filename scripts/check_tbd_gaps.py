@@ -101,9 +101,10 @@ def main(args):
             fullgapthreshold = 6
             gap_times = pd.DataFrame()
             if len(bad_segments)>0 or max(empty_gaps['gap'])>fullgapthreshold:
-                gap_times['t0'] = bad_segments['t0'][np.append(0, np.where(np.diff(bad_segments['t0'])>pd.Timedelta(hours=12))[0]+1)].copy().reset_index(drop=True)
-                gap_times['t1'] = bad_segments['t1'][np.append(np.where(np.diff(bad_segments['t0'])>pd.Timedelta(hours=12))[0], len(bad_segments)-1)].copy().reset_index(drop=True)
-                gap_times['fullgap'] = False
+                if len(bad_segments)>0:
+                    gap_times['t0'] = bad_segments['t0'][np.append(0, np.where(np.diff(bad_segments['t0'])>pd.Timedelta(hours=12))[0]+1)].copy().reset_index(drop=True)
+                    gap_times['t1'] = bad_segments['t1'][np.append(np.where(np.diff(bad_segments['t0'])>pd.Timedelta(hours=12))[0], len(bad_segments)-1)].copy().reset_index(drop=True)
+                    gap_times['fullgap'] = False
                 add_empty_gaps = pd.DataFrame()
                 add_empty_gaps['t0'] = empty_gaps['t0'][empty_gaps['gap']>fullgapthreshold].copy().reset_index(drop=True)
                 add_empty_gaps['t1'] = empty_gaps['t1'][empty_gaps['gap']>fullgapthreshold].copy().reset_index(drop=True)
