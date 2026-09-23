@@ -36,6 +36,7 @@ def main(args):
         t1 = pd.to_datetime('now')+pd.Timedelta(hours=24)
     lo = args.logical_operator.lower()
     ask = args.ask
+    dmon_dir = args.dmon_directory
     csv_file = args.stats
     map_file = args.map
     plot_bathy = args.plot_bathymetry
@@ -75,6 +76,8 @@ def main(args):
     distance = []
     glider = []
     internal = []
+    start_time = []
+    end_time = []
     for ad in deployment_list:
         if projects and gliders and lo=='or':
             if ad['project_name'] not in projects and ad['glider_name'] not in gliders:
@@ -100,14 +103,20 @@ def main(args):
             internal.append(True)
         else:
             internal.append(False)
+        start_time.append(pd.to_datetime(ad['start_date_epoch'], unit='s').strftime('%Y-%m-%d %H:%M'))
         if not ad['end_date_epoch']:
             length.append('ongoing')
+            end_time.append('ongoing')
         else:
             length.append((ad['end_date_epoch']-ad['start_date_epoch'])/60/60/24)
+            end_time.append(pd.to_datetime(ad['end_date_epoch'], unit='s').strftime('%Y-%m-%d %H:%M'))
 
     deployment_info = pd.DataFrame({'deployment_name': glider_deployments_api, 'year': deployment_year, 
-                                    'glider': glider, 'ru_glider': internal, 'project': project, 'nDays': length,
+                                    'glider': glider, 'start_time': start_time, 'end_time': end_time,
+                                    'ru_glider': internal, 'project': project, 'nDays': length,
                                     'distance_km': distance, 'nProfiles': np.nan, 'mode': ''})
+    if dmon_dir:
+        deployment_info['whales'] = ''
 
     ru_erddap = ERDDAP(server='http://slocum-data.marine.rutgers.edu/erddap', protocol='tabledap')
 
@@ -245,6 +254,18 @@ def main(args):
             ax.plot(deployment_track[:,0], deployment_track[:,1], c='red', lw=2, transform=proj['data'], zorder=50)
             if all(extent_inset):
                 ax_inset.plot(deployment_track[:,0], deployment_track[:,1], c='red', lw=2, transform=proj_inset['data'], zorder=50)
+        if dmon_dir:
+            whaletext = ''
+            if os.path.isdir(dmon_dir):
+                if os.path.isfile(os.path.join(dmon_dir, f'{dep}-dmon.csv')):
+                    dmon = pd.read_csv(os.path.join(dmon_dir, f'{dep}-dmon.csv'))
+                    whaletypes = list(set(dmon.columns.tolist())-set(['datetime_utc', 'lat', 'lon', 'analyst', 'notes']))
+                    dmon['time']=pd.to_datetime(dmon['datetime_utc'], format='%Y%m%d%H%M%S')
+                    dmon['date'] = dmon['time'].dt.date
+                    for w in whaletypes:
+                        whaletext += f"{w} whale: {len(np.unique(dmon['date'][dmon[w]=='present']))} detection days ({np.sum(dmon[w]=='present')} detections)\n"
+                    whaletext = whaletext[:-1]
+            deployment_info['whales'][n] = whaletext
 
     if csv_file:
         deployment_info.to_csv(csv_file, index=False)
@@ -282,6 +303,11 @@ if __name__ == '__main__':
                             help='ask whether to include each deployment; default False',
                             default=False,
                             type=bool)
+
+    arg_parser.add_argument('-dmon', '--dmon_directory',
+                                help='directory to look for DMON files (should be named deployment-dmon.csv), default: None',
+                                default=None,
+                                type=str)
     
     arg_parser.add_argument('-csv', '--stats',
                             help='file to write stats info (deployment length, number profiles, etc); default None (do not write any file)',
