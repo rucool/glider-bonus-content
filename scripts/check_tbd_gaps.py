@@ -26,6 +26,10 @@ def main(args):
         args.check_sci = False
     elif type(args.check_sci) is str and args.check_sci.lower() in ['t', 'True']:
         args.check_sci = True
+    if type(args.check_dac) is str and args.check_dac.lower() in ['f', 'false']:
+        args.check_dac = False
+    elif type(args.check_dac) is str and args.check_dac.lower() in ['t', 'True']:
+        args.check_dac = True
     if type(args.slocum_dir) is str and args.slocum_dir.lower()=='none':
         args.slocum_dir = None
     for deployment in args.deployments:
@@ -157,7 +161,7 @@ def main(args):
                         scitxt = 'possibly missing data in sci-profile'
                     if segment_info['dacFlag'][k]:
                         dactxt = 'possibly missing data in DAC'
-                    if segment_info['tbdFlag'][k]:
+                    if segment_info['tbdFlag'][k] and segment_info['maxDepth']>2:
                         tbdtxt = 'possibly unprocessed tbd'
                         if args.check_tbds:
                             tbd = glob.glob(os.path.join(deployment_directory, 'data', 'in', 'binary', 'tbd', '-'.join(sf.split('-')[:5])+'.*'))
