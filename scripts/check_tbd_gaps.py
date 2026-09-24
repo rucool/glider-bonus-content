@@ -108,7 +108,7 @@ def main(args):
                 segment_info['sciFlag'] = False
             if args.check_dac:
                 nopro = np.logical_and(segment_info['nProfiles_dac']==0, segment_info['nTemp']>10)
-                notenoughprodata = segment_info['nTemp'] > segment_info['nProfiles']*segment_info['maxDepth']*3
+                notenoughprodata = segment_info['nTemp'] > segment_info['nProfiles_dac']*segment_info['maxDepth']*3
                 segment_info['dacFlag'] = np.logical_and(nopro, notenoughprodata)
             else:
                 segment_info['dacFlag'] = False
