@@ -161,7 +161,7 @@ def main(args):
                         scitxt = 'possibly missing data in sci-profile'
                     if segment_info['dacFlag'][k]:
                         dactxt = 'possibly missing data in DAC'
-                    if segment_info['tbdFlag'][k] and segment_info['maxDepth']>2:
+                    if segment_info['tbdFlag'][k] and segment_info['maxDepth'][k]>2:
                         tbdtxt = 'possibly unprocessed tbd'
                         if args.check_tbds:
                             tbd = glob.glob(os.path.join(deployment_directory, 'data', 'in', 'binary', 'tbd', '-'.join(sf.split('-')[:5])+'.*'))
