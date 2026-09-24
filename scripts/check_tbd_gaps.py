@@ -55,6 +55,7 @@ def main(args):
             segment_info['nTemp'] = np.nan
             segment_info['maxDepth'] = np.nan
             segment_info['nProfiles'] = np.nan
+            segment_info['nProfiles_dac'] = np.nan
 
             ru_erddap.variables = ['time', 'depth', 'sci_water_temp']
 
@@ -62,6 +63,11 @@ def main(args):
                 ru_erddap_sci = ERDDAP(server='http://slocum-data.marine.rutgers.edu/erddap', protocol='tabledap')
                 ru_erddap_sci.dataset_id = f'{deployment}-profile-sci-rt'
                 ru_erddap_sci.variables = ['profile_time']
+
+            if args.check_dac:
+                dac_erddap_sci = ERDDAP(server='https://gliders.ioos.us/erddap', protocol='tabledap')
+                dac_erddap_sci.dataset_id = f'{deployment}'
+                dac_erddap_sci.variables = ['time']
 
             for f in range(len(segment_info)):
                 # print(f'{f}/{len(segment_info)}')
@@ -80,6 +86,13 @@ def main(args):
                         segment_info['nProfiles'][f] = len(segment_data_sci)
                     except:
                         segment_info['nProfiles'][f] = 0
+                if args.check_dac:
+                    dac_erddap_sci.constraints = {'source_file=': segment_info['source_file'][f]}
+                    try:
+                        segment_data_dac = dac_erddap_sci.to_pandas(distinct=True)
+                        segment_info['nProfiles_dac'][f] = len(segment_data_dac)
+                    except:
+                        segment_info['nProfiles_dac'][f] = 0
         except:
             print(f'Issue reading from dataset {deployment}-trajectory-raw-rt and/or {deployment}-profile-sci-rt using erddapy.\n\n')
             continue
@@ -93,7 +106,13 @@ def main(args):
                 segment_info['sciFlag'] = np.logical_and(nopro, notenoughprodata)
             else:
                 segment_info['sciFlag'] = False
-            bad_segments = segment_info[np.logical_and(segment_info['tLength']>1, np.logical_or(segment_info['tbdFlag'], segment_info['sciFlag']))].copy().reset_index(drop=True)
+            if args.check_dac:
+                nopro = np.logical_and(segment_info['nProfiles_dac']==0, segment_info['nTemp']>10)
+                notenoughprodata = segment_info['nTemp'] > segment_info['nProfiles']*segment_info['maxDepth']*3
+                segment_info['dacFlag'] = np.logical_and(nopro, notenoughprodata)
+            else:
+                segment_info['dacFlag'] = False
+            bad_segments = segment_info[np.logical_and(segment_info['tLength']>1, np.logical_or(np.logical_or(segment_info['tbdFlag'], segment_info['sciFlag']), segment_info['dacFlag']))].copy().reset_index(drop=True)
 
             empty_gaps = pd.DataFrame({'t0': segment_info['t1'][:-1].copy().reset_index(drop=True), 't1': segment_info['t0'][1:].copy().reset_index(drop=True)})
             empty_gaps['gap'] = (pd.to_datetime(empty_gaps['t1']) - pd.to_datetime(empty_gaps['t0']))/np.timedelta64(1,'h')
@@ -133,8 +152,11 @@ def main(args):
                     k = segment_info[segment_info['source_file']==sf].index[0]
                     scitxt = ''
                     tbdtxt = ''
+                    dactxt = ''
                     if segment_info['sciFlag'][k]:
                         scitxt = 'possibly missing data in sci-profile'
+                    if segment_info['dacFlag'][k]:
+                        dactxt = 'possibly missing data in DAC'
                     if segment_info['tbdFlag'][k]:
                         tbdtxt = 'possibly unprocessed tbd'
                         if args.check_tbds:
@@ -145,12 +167,20 @@ def main(args):
                                 tbdtxt += ' (FOUND)'
                             else:
                                 tbdtxt += ' (not found)'
-                    if tbdtxt and scitxt:
+                    if tbdtxt and scitxt and dactxt:
+                        problem_info = ', '.join([tbdtxt, scitxt, dactxt])
+                    elif tbdtxt and scitxt:
                         problem_info = ', '.join([tbdtxt, scitxt])
+                    elif tbdtxt and dactxt:
+                        problem_info = ', '.join([tbdtxt, dactxt])
+                    elif scitxt and dactxt:
+                        problem_info = ', '.join([scitxt, dactxt])
                     elif tbdtxt:
                         problem_info = tbdtxt
                     elif scitxt:
                         problem_info = scitxt
+                    elif dactxt:
+                        problem_info = dactxt
                     else:
                         problem_info = ''
                     print(f'{sf} {problem_info}')
@@ -185,7 +215,11 @@ if __name__ == '__main__':
     arg_parser.add_argument('-sci', '--check_sci',
                             help='whether to check profile-sci dataset to make sure there is data where it is also seen in raw-trajectory',
                             default=True)
-    
+
+    arg_parser.add_argument('-dac', '--check_dac',
+                            help='whether to check DAC dataset to make sure there is data where it is also seen in raw-trajectory',
+                            default=True)
+
     parsed_args = arg_parser.parse_args()
 
     sys.exit(main(parsed_args))
