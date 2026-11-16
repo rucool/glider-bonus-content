@@ -22,7 +22,9 @@ Flags (thresholds are options):
   - not on Rutgers / not on the DAC: INVESTIGATE (WATCH while the deployment is less than a day old)
   - Rutgers or DAC behind the glider's last call-in: WATCH over 12 h, INVESTIGATE over 24 h (same for both)
     The HTML colors the columns the same way: green under 12 h, orange 12-24 h, red over 24 h.
-  - glider hasn't called in for 12+ h: for reference only (a piloting matter, not a data-flow one)
+  - glider hasn't called in (time since its last call-in): same thresholds, WATCH over 12 h, INVESTIGATE over 24 h.
+    A recovered glider stays "active" until the data operators mark the deployment recovered, so a long silence
+    usually means that still needs doing (otherwise the glider itself is quiet). Same colors.
 
 Every run is appended to dac_flow_history.csv (next to this script), which gives each deployment's lag over time:
 the report shows when a lag started (the first run in the current streak over the watch threshold), how long the
@@ -58,7 +60,6 @@ HISTORY_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dac_flo
 HISTORY_COLS = ['run', 'deployment', 'last_call_in', 'rutgers_latest', 'dac_latest',
                 'rutgers_behind_h', 'dac_behind_callin_h', 'status']
 TREND_RUNS = 10          # history rows shown per deployment
-SILENT_HOURS = 12        # no call-in for this long -> listed for reference
 NEW_DEPLOYMENT_HOURS = 24
 STATUS_ORDER = {'investigate': 0, 'watch': 1, 'ok': 2}
 
@@ -107,6 +108,11 @@ def _lag(td):
     return 'caught up' if td <= pd.Timedelta(minutes=3) else csa._dur(td).lstrip('+')
 
 
+def _since(td):
+    """Time since the last call-in: '2.3 h' / '1.5 days' / '-'."""
+    return csa._dur(td).lstrip('+') if pd.notna(td) else '-'
+
+
 def _sev(td, watch_h, inv_h):
     h = _h(td)
     return None if not h > watch_h else 'investigate' if h > inv_h else 'watch'
@@ -131,10 +137,12 @@ def check(dep, now, args):
     if sev:
         probs.append((sev, f'DAC is {_lag(dep["dac_behind"])} behind the glider\'s last call-in '
                            f'(call-in {csa._ts(dep["last_call_in"])}, DAC latest {csa._ts(dep["dac_latest"])})'))
-    silent = now - dep['last_call_in']
-    if pd.notna(silent) and _h(silent) > SILENT_HOURS:
-        probs.append(('info', f'glider has not called in for {_lag(silent)} (last call-in {csa._ts(dep["last_call_in"])})'
-                              ' - nothing new to flow downstream until it does'))
+    sev = _sev(dep['since_call_in'], args.watch_hours, args.investigate_hours)
+    if sev:
+        probs.append((sev, f'no call-in for {_since(dep["since_call_in"])} (last call-in '
+                           f'{csa._ts(dep["last_call_in"])}) - if the glider has been recovered, the deployment still '
+                           'needs to be marked recovered by the data operators; otherwise nothing new can flow until '
+                           'it calls in'))
     return probs
 
 
@@ -223,24 +231,26 @@ def diffs(r):
     return [(ru, -_h(ru)), (dac, -_h(dac)), (dac_ru, abs(_h(dac_ru)))]
 
 
-TABLE_HEADER = ['deployment', 'status', 'last call-in', 'Rutgers latest', 'DAC latest', *DIFF_HEADER,
+TABLE_HEADER = ['deployment', 'status', 'last call-in', 'since call-in', 'Rutgers latest', 'DAC latest', *DIFF_HEADER,
                 'RU unchanged', 'DAC unchanged', 'DAC lag since']
 
 
 def table_row(d, now, meta):
     return [d['deployment'], d['status'].upper() if d['status'] != 'ok' else 'OK', csa._ts(d['last_call_in']),
-            csa._ts(d['rutgers_latest']), csa._ts(d['dac_latest']), *(csa._dur(td) for td, _ in diffs(d)),
+            _since(d['since_call_in']), csa._ts(d['rutgers_latest']), csa._ts(d['dac_latest']),
+            *(csa._dur(td) for td, _ in diffs(d)),
             *(t for t, _ in frozen_cells(d, now, meta)),
             '-' if d['dac_lag_since'] is None else 'this run' if d['dac_lag_since'] >= now
             else csa._ts(d['dac_lag_since'])]
 
 
-TREND_HEADER = ['run', 'last call-in', 'Rutgers latest', 'DAC latest', *DIFF_HEADER, 'status']
+TREND_HEADER = ['run', 'last call-in', 'since call-in', 'Rutgers latest', 'DAC latest', *DIFF_HEADER, 'status']
 
 
 def trend_rows(d):
-    return [[csa._ts(r['run']), csa._ts(r['last_call_in']), csa._ts(r['rutgers_latest']), csa._ts(r['dac_latest']),
-             *(csa._dur(td) for td, _ in diffs(r)), str(r['status']).upper()] for _, r in d['trend'].iterrows()]
+    return [[csa._ts(r['run']), csa._ts(r['last_call_in']), _since(r['run'] - r['last_call_in']),
+             csa._ts(r['rutgers_latest']), csa._ts(r['dac_latest']), *(csa._dur(td) for td, _ in diffs(r)),
+             str(r['status']).upper()] for _, r in d['trend'].iterrows()]
 
 
 def render_text(meta, deps):
@@ -312,11 +322,14 @@ def render_html(meta, deps):
                'dive behind while the last science file comes in).</p>')
     out.append('<details><summary>How to read this report</summary><dl class="legend">')
     out.append(f'<dt><span class="badge sev-investigate">Investigate</span></dt><dd>Not on Rutgers or the DAC; Rutgers '
-               f'more than {meta["rutgers_inv"]:g} h or the DAC more than {meta["dac_inv"]:g} h behind the glider\'s '
-               f'last call-in.</dd>')
-    out.append(f'<dt><span class="badge sev-watch">Watch</span></dt><dd>Rutgers {meta["rutgers_watch"]:g}&ndash;'
-               f'{meta["rutgers_inv"]:g} h or the DAC {meta["dac_watch"]:g}&ndash;{meta["dac_inv"]:g} h behind the '
-               f'call-in; missing while the deployment is less than {NEW_DEPLOYMENT_HOURS} h old.</dd>')
+               f'or the DAC more than {meta["dac_inv"]:g} h behind the glider\'s last call-in; no call-in for more '
+               f'than {meta["dac_inv"]:g} h.</dd>')
+    out.append(f'<dt><span class="badge sev-watch">Watch</span></dt><dd>Rutgers or the DAC {meta["dac_watch"]:g}&ndash;'
+               f'{meta["dac_inv"]:g} h behind the call-in; no call-in for {meta["dac_watch"]:g}&ndash;'
+               f'{meta["dac_inv"]:g} h; missing while the deployment is less than {NEW_DEPLOYMENT_HOURS} h old.</dd>')
+    out.append('<dt>since call-in</dt><dd>Time from the glider&rsquo;s last call-in to this run. A recovered glider '
+               'stops calling in but stays &ldquo;active&rdquo; until the data operators mark the deployment '
+               'recovered - a long time here (with both servers frozen) usually means that still needs doing.</dd>')
     out.append('<dt>RU - call-in<br>DAC - call-in</dt><dd>The server&rsquo;s latest data time minus the glider&rsquo;s '
                'last call-in. Negative = the newest data the server has is that much older than the call-in. 0.0 h or '
                'positive = it has data up to (or past) the call-in; positive means the API&rsquo;s call-in record is '
@@ -326,11 +339,9 @@ def render_html(meta, deps):
                'server is the slow one and set the status.</dd>')
     band = lambda w, i: (f'<span class="lag lag-ok">green</span> under {w:g} h, <span class="lag lag-watch">orange'
                          f'</span> {w:g}&ndash;{i:g} h, <span class="lag lag-bad">red</span> over {i:g} h')
-    out.append(f'<dt>colors</dt><dd>{band(meta["dac_watch"], meta["dac_inv"])}, for every column: RU - call-in and '
-               f'DAC - call-in by how far behind the call-in (at/after the call-in = green), DAC - RU by the size of '
-               f'the gap either way, RU / DAC unchanged by how long.</dd>')
-    out.append(f'<dt><span class="badge sev-info">For reference</span></dt><dd>The glider has not called in for '
-               f'{SILENT_HOURS}+ h - nothing new can flow until it does.</dd>')
+    out.append(f'<dt>colors</dt><dd>{band(meta["dac_watch"], meta["dac_inv"])}, for every column: since call-in by '
+               f'how long, RU - call-in and DAC - call-in by how far behind the call-in (at/after the call-in = green), '
+               f'DAC - RU by the size of the gap either way, RU / DAC unchanged by how long.</dd>')
     out.append('<dt>DAC lag since</dt><dd>The first daily run in the current unbroken streak with the DAC over the '
                'watch threshold behind the call-in - how long the lag has been going on.</dd>')
     out.append('<dt>RU / DAC unchanged</dt><dd>How long that server&rsquo;s latest time has stayed the same across the '
@@ -346,12 +357,13 @@ def render_html(meta, deps):
         r = table_row(d, meta['now'], meta)
         badge = {'investigate': 'sev-investigate', 'watch': 'sev-watch', 'ok': 'ok'}[d['status']]
         cells = [f'<td>{e(r[0])}</td>', f'<td><span class="badge {badge}">{e(r[1])}</span></td>']
-        lags = _diff_cells(e, r, 5, diffs(d), meta)
+        lags = _diff_cells(e, r, 6, diffs(d), meta)
+        lags[3] = _lag_cell(e, r[3], _h(d['since_call_in']), meta['dac_watch'], meta['dac_inv'])
         for k, ((text, hours), (watch, inv)) in enumerate(zip(frozen_cells(d, meta['now'], meta),
                                                              [(meta['rutgers_watch'], meta['rutgers_inv']),
                                                               (meta['dac_watch'], meta['dac_inv'])])):
-            lags[8 + k] = _lag_cell(e, text, hours, watch, inv)
-        cells += [lags[i] if i in lags else '<td class="none">&ndash;</td>' if (i in (3, 4) and c == '-')
+            lags[9 + k] = _lag_cell(e, text, hours, watch, inv)
+        cells += [lags[i] if i in lags else '<td class="none">&ndash;</td>' if (i in (4, 5) and c == '-')
                   else f'<td>{e(c)}</td>' for i, c in enumerate(r[2:], start=2)]
         out.append(f'<tr{" class=bad" if d["status"] == "investigate" else ""}>{"".join(cells)}</tr>')
     out.append('</tbody></table></div></section>')
@@ -371,7 +383,8 @@ def render_html(meta, deps):
             out += [f'<th>{e(h)}</th>' for h in TREND_HEADER]
             out.append('</tr></thead><tbody>')
             for r, (_, h) in zip(trend_rows(d), d['trend'].iterrows()):
-                lags = _diff_cells(e, r, 4, diffs(h), meta)
+                lags = _diff_cells(e, r, 5, diffs(h), meta)
+                lags[2] = _lag_cell(e, r[2], _h(h['run'] - h['last_call_in']), meta['dac_watch'], meta['dac_inv'])
                 out.append('<tr>' + ''.join(lags.get(i, f'<td>{e(c)}</td>') for i, c in enumerate(r)) + '</tr>')
             out.append('</tbody></table></div>')
         out.append('</section>')
@@ -430,6 +443,7 @@ def main():
     for d in deps:
         d['rutgers_behind'] = d['last_call_in'] - d['rutgers_latest']
         d['dac_behind'] = d['last_call_in'] - d['dac_latest']
+        d['since_call_in'] = now - d['last_call_in']
         d['problems'] = [(s, m) for s, m in check(d, now, args)
                          if read_ok or not m.startswith('not on')]
         sevs = [s for s, _ in d['problems'] if s != 'info']
