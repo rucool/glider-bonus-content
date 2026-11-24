@@ -30,7 +30,15 @@ Every run is appended to dac_flow_history.csv (next to this script), which gives
 the report shows when a lag started (the first run in the current streak over the watch threshold), how long the
 latest times have been unchanged ("frozen since"), and the last runs as a small trend table.
 
-Run it once a day by cron through the wrapper, which also emails the report (settings in run_glider_check.conf):
+Recovered deployments: a deployment that was in the last saved run but is no longer on the active list, and now has
+an end date in the deployments API, is listed in the report as recovered and its name is written to
+recovered_today.txt (in the folder the check is run from; rewritten every run, empty when there's none). The wrapper
+(sh/run_glider_check_example.sh) makes a one-page summary for each with recovered_deployment_summary.py. Only daily
+runs look for recoveries (not --gliders / --no-history runs), and each one reported is logged in
+dac_flow_recovered.csv (next to this script) so it's reported once. One dropped off the list without an end date is
+only flagged, not treated as recovered.
+
+Run it once a day by cron through the wrapper, which also emails the report (sh/run_glider_check_example.sh):
   0 8 * * *  bash /path/to/run_glider_check.sh dac >> /path/to/dac_flow.log 2>&1
 or on its own:
   python check_dac_flow.py --html dac_flow_report.html --archive-dir reports
@@ -55,10 +63,13 @@ RUTGERS = csa.SERVERS['old']
 RUTGERS_IDS = ['{}-profile-sci-rt', '{}-trajectory-raw-rt']
 AHEAD_SLACK = pd.Timedelta(minutes=15)   # data up to this far past the call-in still counts as "caught up"
 HISTORY_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dac_flow_history.csv')
+# recoveries already reported (so each triggers one summary, even when nothing is active to save a run for)
+RECOVERED_LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dac_flow_recovered.csv')
 # dac_behind_callin_h replaced dac_behind_h (DAC behind Rutgers) on 2026-11-06; a history file with the old columns
 # is moved aside rather than mixed in (read_history).
 HISTORY_COLS = ['run', 'deployment', 'last_call_in', 'rutgers_latest', 'dac_latest',
                 'rutgers_behind_h', 'dac_behind_callin_h', 'status']
+DEPLOYMENTS_API = csa.ACTIVE_API.split('?')[0]
 TREND_RUNS = 10          # history rows shown per deployment
 NEW_DEPLOYMENT_HOURS = 24
 STATUS_ORDER = {'investigate': 0, 'watch': 1, 'ok': 2}
@@ -77,6 +88,45 @@ def fetch_active():
         out.append({'deployment': d['deployment_name'], 'started': ts(d.get('start_date_epoch')),
                     'last_call_in': ts(surf.get('connect_time_epoch'))})
     return out
+
+
+def find_recovered(hist, names):
+    """Deployments in the last saved run that are no longer active and haven't been reported yet: (recovered,
+    dropped) - recovered = [(name, end date)] for those the API now gives an end date; dropped = names without one
+    (or the API couldn't say)."""
+    if hist.empty:
+        return [], []
+    last = hist['run'].max()
+    done = set(pd.read_csv(RECOVERED_LOG_PATH)['deployment']) if os.path.exists(RECOVERED_LOG_PATH) else set()
+    gone = sorted(set(hist.loc[hist['run'] == last, 'deployment']) - set(names) - done)
+    recovered, dropped = [], []
+    for name in gone:
+        try:
+            r = csa.polite_get(f'{DEPLOYMENTS_API}?deployment={name}')
+            r.raise_for_status()
+            rows = [d for d in r.json().get('data', []) if d.get('deployment_name') == name]
+            end = rows[0].get('end_date_epoch') if rows else None
+        except Exception:
+            end = None
+        if end:
+            recovered.append((name, pd.Timestamp(end, unit='s', tz='UTC')))
+        else:
+            dropped.append(name)
+    return recovered, dropped
+
+
+def report_recoveries(meta, hist, names, recovered_file):
+    """Find new recoveries, list them in meta, write their names to recovered_file and log them as reported."""
+    meta['recovered'], dropped = find_recovered(hist, names)
+    for name in dropped:
+        meta['alerts'].append(f'{name} dropped off the active list but has no end date in the deployments API - '
+                              'not treated as recovered (no summary made)')
+    with open(recovered_file, 'w') as f:
+        f.writelines(f'{n}\n' for n, _ in meta['recovered'])
+    if meta['recovered']:
+        pd.DataFrame([{'deployment': n, 'end': end, 'reported': meta['now']} for n, end in meta['recovered']]).to_csv(
+            RECOVERED_LOG_PATH, mode='a', header=not os.path.exists(RECOVERED_LOG_PATH), index=False,
+            date_format='%Y-%m-%dT%H:%M:%SZ')
 
 
 def latest_times(server, id_patterns, names):
@@ -261,6 +311,9 @@ def render_text(meta, deps):
     lines += [f'!! {a}' for a in meta['alerts']]
     lines.append(f'SUMMARY: {len(deps)} active deployments - {n_inv} to INVESTIGATE, {n_watch} to WATCH, '
                  f'{len(deps) - n_inv - n_watch} OK')
+    if meta['recovered']:
+        lines += ['', 'RECOVERED SINCE THE LAST RUN (deployment summary being made):']
+        lines += [f'  {n} - ended {end:%Y-%m-%d %H:%M} UTC' for n, end in meta['recovered']]
     lines += ['', *csa._text_table(TABLE_HEADER, [table_row(d, meta['now'], meta) for d in deps])]
     for d in deps:
         lines += ['', f'--- {d["deployment"]} - {d["status"].upper()} ' + '-' * max(0, 80 - len(d['deployment']))]
@@ -311,6 +364,13 @@ def render_html(meta, deps):
            f'<div class="card {"warn" if n_watch else "ok"}"><div class="n">{n_watch}</div><div class="label">to watch</div></div>',
            f'<div class="card ok"><div class="n">{n_ok}</div><div class="label">flowing OK</div></div></div>']
     out += [f'<div class="alert">{e(a)}</div>' for a in meta['alerts']]
+    if meta['recovered']:
+        out.append('<section><h2>Recovered since the last run</h2><p class="intro">No longer on the active list and '
+                   'now with an end date in the deployments API - a one-page deployment summary is made for each.</p>'
+                   '<ul class="problems">')
+        out += [f'<li><span class="dep">{e(n)}</span> &middot; ended {end:%Y-%m-%d %H:%M} UTC</li>'
+                for n, end in meta['recovered']]
+        out.append('</ul></section>')
 
     out.append('<section><h2>What is measured</h2><p class="intro">Each server&rsquo;s latest data is measured on its '
                'own against the glider&rsquo;s last call-in (<a href="https://marine.rutgers.edu/cool/data/gliders/">'
@@ -406,14 +466,20 @@ def main():
     p.add_argument('--no-history', action='store_true', help='don\'t add this run to the history')
     p.add_argument('--html', default=None, help='also write the report as a self-contained HTML page to this path')
     p.add_argument('--archive-dir', default=None, help='also save a dated copy, e.g. reports/dac_flow_20261105_0800.html')
+    p.add_argument('--recovered-file', default='recovered_today.txt',
+                   help='newly recovered deployments, one per line (rewritten every run, empty when none). '
+                        'Default: recovered_today.txt')
     args = p.parse_args()
+    # Emptied first, so a run that stops early never leaves yesterday's names behind to be summarized again
+    open(args.recovered_file, 'w').close()
     # one set of thresholds for both servers (the per-server names are what the rest of the code reads)
     args.rutgers_watch_hours = args.dac_watch_hours = args.watch_hours
     args.rutgers_investigate_hours = args.dac_investigate_hours = args.investigate_hours
 
     now = pd.Timestamp.now(tz='UTC').floor('min')
-    meta = {'now': now, 'alerts': [], 'dac_watch': args.dac_watch_hours, 'dac_inv': args.dac_investigate_hours,
-            'rutgers_watch': args.rutgers_watch_hours, 'rutgers_inv': args.rutgers_investigate_hours}
+    meta = {'now': now, 'alerts': [], 'recovered': [], 'dac_watch': args.dac_watch_hours,
+            'dac_inv': args.dac_investigate_hours, 'rutgers_watch': args.rutgers_watch_hours,
+            'rutgers_inv': args.rutgers_investigate_hours}
 
     try:
         deps = fetch_active()
@@ -424,6 +490,12 @@ def main():
         deps = [d for d in deps if pd.Series([d['deployment']]).str.match(f'({args.gliders})').iloc[0]]
     if not deps:
         print('No active deployments' + (f' matching {args.gliders}' if args.gliders else '') + '.')
+        if not args.gliders and not args.no_history:       # the last one in the water may just have been recovered
+            report_recoveries(meta, read_history(meta, False), [], args.recovered_file)
+            for a in meta['alerts']:
+                print(f'!! {a}')
+            for n, end in meta['recovered']:
+                print(f'RECOVERED SINCE THE LAST RUN: {n} - ended {end:%Y-%m-%d %H:%M} UTC (deployment summary being made)')
         return 0
     names = [d['deployment'] for d in deps]
 
@@ -452,6 +524,10 @@ def main():
     # History: this run is added, then each deployment's streaks are read back from it
     save = read_ok and not args.no_history and (not args.gliders or args.save_history)
     hist = read_history(meta, save)
+
+    # Recoveries: in the last saved run, not active now. Daily (saved, unfiltered) runs only.
+    if save and not args.gliders:
+        report_recoveries(meta, hist, names, args.recovered_file)
     this_run = pd.DataFrame([{'run': now, 'deployment': d['deployment'], 'last_call_in': d['last_call_in'],
                               'rutgers_latest': d['rutgers_latest'], 'dac_latest': d['dac_latest'],
                               'rutgers_behind_h': round(_h(d['rutgers_behind']), 2),

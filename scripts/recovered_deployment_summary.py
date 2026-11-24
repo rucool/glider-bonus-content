@@ -18,14 +18,14 @@ Each run:
   python recovered_deployment_summary.py DEPLOYMENT [options]
 
   DEPLOYMENT       deployment name, e.g. ru43-20261111T1711
-  -o DIR           folder for the PDF, created if needed [default: recovered_reports, in the folder you run it from]
+  -o DIR           folder for the PDF, created if needed [default: glider_deployment_summary, in the folder you run it from]
   --no-whales      leave out the whale detection map
   -l LEVEL         log level: debug, info (default), warning, error
 
 Examples:
   python recovered_deployment_summary.py sbu01-20261105T1718
-      -> recovered_reports/sbu01-20261105T1718_summary.pdf
-  python recovered_deployment_summary.py maracoos_02-20240124T1445 -o /PATH/TO/recovered_reports
+      -> glider_deployment_summary/sbu01-20261105T1718_summary.pdf
+  python recovered_deployment_summary.py maracoos_02-20240124T1445 -o /PATH/TO/glider_deployment_summary
 
 Takes about 1-3 minutes (ERDDAP draws each plot). The deployment should have a profile-sci-rt or -delayed dataset on
 the Rutgers ERDDAP; one that is still active works too (length then shows "so far").
@@ -494,8 +494,8 @@ def main(args):
 if __name__ == '__main__':
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('deployment', help='deployment name, e.g. ru43-20261111T1711')
-    p.add_argument('-o', '--outputdir', default='recovered_reports',
-                   help='folder for the PDF (<deployment>_summary.pdf); created if needed. Default: recovered_reports')
+    p.add_argument('-o', '--outputdir', default='glider_deployment_summary',
+                   help='folder for the PDF (<deployment>_summary.pdf); created if needed. Default: glider_deployment_summary')
     p.add_argument('--no-whales', action='store_true',
                    help='leave out the whale detection map (Robots4Whales still listed under Data Delivered To)')
     p.add_argument('-l', '--loglevel', default='info', choices=['debug', 'info', 'warning', 'error'])

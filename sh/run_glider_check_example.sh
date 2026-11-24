@@ -12,6 +12,7 @@ conda_env='glider-bonus-content';
 email='email1@domain.edu, email2@domain.com';
 web_dir='';                                    # optional, e.g. /PATH/TO/WEB/DIR - '' = no web copy
 web_url='';                                    # URL web_dir is served at, e.g. https://URL/TO/WEB/DIR
+erddapgraph_dir=/PATH/TO/erddapgraph;          # clone of https://github.com/kerfoot/erddapgraph (deployment summaries)
 
 # Usage message
 USAGE="
@@ -29,7 +30,10 @@ DESCRIPTION
     text summary in the body, the HTML attached.
 
     CHECK
-        dac       daily DAC data-flow check (check_dac_flow.py) [Default]
+        dac       daily DAC data-flow check (check_dac_flow.py) [Default]. Deployments
+                  recovered since the last run each get a one-page summary
+                  (recovered_deployment_summary.py) in OUT_DIR/glider_deployment_summary/,
+                  listed in the email.
         realtime  realtime old vs new (compare_server_availability.py)
 
     -h
@@ -111,6 +115,23 @@ echo "$(date +"%Y-%m-%d %H:%M:%S"): Running $check check";
 python ${REPO_DIR}/scripts/$script $args --html ${name}_report.html --archive-dir reports > ${name}_last.txt 2>&1;
 status=$?;
 echo "$(date +"%Y-%m-%d %H:%M:%S"): Finished $check check (exit $status)";
+
+# Recovered deployments (dac check): check_dac_flow.py lists the newly recovered ones in recovered_today.txt; make a
+# one-page summary for each in OUT_DIR/glider_deployment_summary/ and say so in the email
+if [ "$check" == "dac" ] && [ "$status" -eq 0 ] && [ -s recovered_today.txt ]; then
+    mkdir -p glider_deployment_summary;
+    echo "" >> ${name}_last.txt;
+    echo "Deployment summaries:" >> ${name}_last.txt;
+    for dep in $(cat recovered_today.txt); do
+        echo "$(date +"%Y-%m-%d %H:%M:%S"): Making deployment summary for $dep";
+        if PYTHONPATH="${erddapgraph_dir}:${PYTHONPATH}" python ${REPO_DIR}/scripts/recovered_deployment_summary.py \
+               $dep -o glider_deployment_summary >> glider_deployment_summary/summary.log 2>&1; then
+            echo "  made $OUT_DIR/glider_deployment_summary/${dep}_summary.pdf" >> ${name}_last.txt;
+        else
+            echo "  FAILED for $dep - see $OUT_DIR/glider_deployment_summary/summary.log" >> ${name}_last.txt;
+        fi
+    done
+fi
 
 # Copy the report to the web folder (same name each run, so the link always shows the latest) and put the link at
 # the top of the email body. Only a fresh report is copied - if the check failed, the web copy is left as it was.
