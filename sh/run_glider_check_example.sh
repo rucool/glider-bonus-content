@@ -21,6 +21,9 @@ email='email1@domain.edu, email2@domain.com';
 web_dir='';                                    # optional, e.g. /PATH/TO/WEB/DIR - '' = no web copy
 web_url='';                                    # URL web_dir is served at, e.g. https://URL/TO/WEB/DIR
 erddapgraph_dir=/PATH/TO/erddapgraph;          # clone of https://github.com/kerfoot/erddapgraph (deployment summaries)
+box_email='';                                  # optional Box folder upload address (folder settings: "Allow uploads
+                                               # to this folder via email") - each summary's Word file is emailed
+                                               # there; '' = don't. Keep the real address out of git.
 
 # Usage message
 USAGE="
@@ -138,6 +141,18 @@ if [ "$check" == "dac" ] && [ "$status" -eq 0 ] && [ -s recovered_today.txt ]; t
         if PYTHONPATH="${erddapgraph_dir}:${PYTHONPATH}" python ${scripts_dir}/recovered_deployment_summary.py \
                $dep -o glider_deployment_summary >> glider_deployment_summary/summary.log 2>&1; then
             echo "  made $OUT_DIR/$pdf" >> ${name}_last.txt;
+            docx=${pdf%.pdf}.docx;
+            if [ -f "$docx" ]; then
+                echo "  Word version (for Box): $OUT_DIR/$docx" >> ${name}_last.txt;
+                if [ -n "$box_email" ]; then      # Box files an emailed attachment into the folder
+                    echo "Recovered deployment summary for $dep, from the daily glider DAC check." > box_body.txt;
+                    if sh ${sh_dir}/mail_report.sh "$dep deployment summary" "$box_email" box_body.txt $docx; then
+                        echo "  emailed $(basename $docx) to the Box folder" >> ${name}_last.txt;
+                    else
+                        echo "  (could not email $(basename $docx) to the Box folder)" >> ${name}_last.txt;
+                    fi
+                fi
+            fi
             if [ -n "$web_dir" ]; then
                 if mkdir -p "$web_dir/glider_deployment_summary" && chmod a+rx "$web_dir/glider_deployment_summary" \
                        && cp $pdf "$web_dir/glider_deployment_summary/" && chmod a+r "$web_dir/$pdf"; then

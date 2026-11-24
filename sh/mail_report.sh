@@ -1,7 +1,8 @@
 #!/bin/sh
-# Email a report with the HTML attached, through the server's sendmail (the same path cron's MAILTO uses).
+# Email a report with a file attached (HTML report, PDF or Word summary), through the server's sendmail (the same
+# path cron's MAILTO uses). The attachment type is set from its extension.
 #
-#   sh mail_report.sh "<subject>" <to> <body.txt> <report.html>
+#   sh mail_report.sh "<subject>" <to> <body.txt> <file>
 #
 # Normally called by run_glider_check_example.sh (your filled-in copy); on its own, e.g.:
 #   sh mail_report.sh "Glider DAC flow $(date +%F)" you@example.edu dac_flow_last.txt dac_flow_report.html
@@ -28,9 +29,15 @@ build() {
     if [ -f "$BODY" ]; then cat "$BODY"; else echo "(no output file $BODY - the script may not have run)"; fi
     if [ -n "$ATTACH" ] && [ -f "$ATTACH" ]; then
         name=$(basename "$ATTACH")
+        case "$name" in
+            *.html|*.htm) type='text/html; charset=utf-8' ;;
+            *.pdf)        type='application/pdf' ;;
+            *.docx)       type='application/vnd.openxmlformats-officedocument.wordprocessingml.document' ;;
+            *)            type='application/octet-stream' ;;
+        esac
         echo
         echo "--$B"
-        echo "Content-Type: text/html; charset=utf-8; name=\"$name\""
+        echo "Content-Type: $type; name=\"$name\""
         echo "Content-Transfer-Encoding: base64"
         echo "Content-Disposition: attachment; filename=\"$name\""
         echo

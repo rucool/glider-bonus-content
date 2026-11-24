@@ -1,16 +1,18 @@
 #!/usr/bin/env python
 r"""
 Author: jengdahl 11/16/2026
-One-page PDF summary for a recovered glider deployment: header (project, PIs, where the data went, length, sensors),
-a track map, a depth-time section for each sensor variable, and the Robots4Whales (WHOI DCS) analyst-reviewed whale
-detections on one map when the glider carried a passive acoustic monitor.
+One-page summary for a recovered glider deployment, as a PDF and a Word (.docx) version: header (project, PIs,
+where the data went, length, sensors), a track map, a depth-time section for each sensor variable, and the
+Robots4Whales (WHOI DCS) analyst-reviewed whale detections on one map when the glider carried a passive acoustic
+monitor.
 
 How to run
 ----------
 Setup (once):
   1. Clone erddapgraph (not pip/conda installable):
        git clone https://github.com/kerfoot/erddapgraph.git /PATH/TO/erddapgraph
-  2. A conda environment with: pandas, requests, pyyaml, matplotlib, cartopy, erddapy, python-dateutil
+  2. A conda environment with: pandas, requests, pyyaml, matplotlib, cartopy, erddapy, python-dateutil,
+     python-docx (for the Word version; without it only the PDF is made)
 
 Each run:
   conda activate <your environment>
@@ -18,13 +20,16 @@ Each run:
   python recovered_deployment_summary.py DEPLOYMENT [options]
 
   DEPLOYMENT       deployment name, e.g. ru43-20261111T1711
-  -o DIR           folder for the PDF, created if needed [default: glider_deployment_summary, in the folder you run it from]
+  -o DIR           folder for the PDF and .docx, created if needed [default: glider_deployment_summary, in the
+                   folder you run it from]
+  --no-docx        PDF only, no Word version
+  --pis "A, B"     PI names to show when the dataset metadata lists none (no Principal Investigator role)
   --no-whales      leave out the whale detection map
   -l LEVEL         log level: debug, info (default), warning, error
 
 Examples:
   python recovered_deployment_summary.py sbu01-20261105T1718
-      -> glider_deployment_summary/sbu01-20261105T1718_summary.pdf
+      -> glider_deployment_summary/sbu01-20261105T1718_summary.pdf and _summary.docx
   python recovered_deployment_summary.py maracoos_02-20240124T1445 -o /PATH/TO/glider_deployment_summary
 
 Takes about 1-3 minutes (ERDDAP draws each plot). The deployment should have a profile-sci-rt or -delayed dataset on
@@ -118,10 +123,11 @@ def find_dataset(deployment):
 
 
 def pis(info):
+    """PIs = the contributor_name entries whose contributor_role (same position) is Principal Investigator."""
     names = (attr(info, 'NC_GLOBAL', 'contributor_name') or '').split(',')
     roles = (attr(info, 'NC_GLOBAL', 'contributor_role') or '').split(',')
     out = [n.strip() for n, r in zip(names, roles) if 'principal investigator' in r.lower()]
-    return ', '.join(out) or '-'
+    return ', '.join(out) or 'not listed in the dataset metadata (no Principal Investigator contributor_role)'
 
 
 def sensors(info):
@@ -398,9 +404,10 @@ def _trim(img, pad=4):
     return img[max(rows.min() - pad, 0):rows.max() + pad + 1, max(cols.min() - pad, 0):cols.max() + pad + 1]
 
 
-def make_pdf(path, header, panels, whale):
-    """Draw the page and save it as a PDF to path.
-    header: [(label, [(text, url)])]; panels: [(title, png)]; whale: (track, detections) or None."""
+def make_pdf(path, header, panels, whale, whale_png=None):
+    """Draw the page and save it as a PDF to path; with whale_png, also save the whale section (map + legend) as an
+    image for the Word version. header: [(label, [(text, url)])]; panels: [(title, png)]; whale: (track, detections)
+    or None."""
     import cartopy.crs as ccrs
     fig = plt.figure(figsize=(8.5, 11))
     # Header in two columns: the four short lines on the left, the two long ones (PIs, delivered to) in a wider
@@ -436,7 +443,112 @@ def make_pdf(path, header, panels, whale):
         ax.set_title('Whale Detections', fontsize=10)
         whale_legend(fig, X0 + 0.64, 0.37, det, handles)
     fig.savefig(path, dpi=200)
+    if whale and whale_png:      # the bottom of the page below the divider line, page margins cropped off
+        from matplotlib.transforms import Bbox
+        fig.savefig(whale_png, dpi=200, bbox_inches=Bbox.from_extents((X0 - 0.03) * 8.5, 0, X1 * 8.5, 0.385 * 11))
     plt.close(fig)
+
+
+def _docx_link(paragraph, text, url):
+    """A clickable link in a Word paragraph (python-docx has no direct call for this)."""
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from docx.opc.constants import RELATIONSHIP_TYPE
+    r_id = paragraph.part.relate_to(url, RELATIONSHIP_TYPE.HYPERLINK, is_external=True)
+    link = OxmlElement('w:hyperlink')
+    link.set(qn('r:id'), r_id)
+    run = OxmlElement('w:r')
+    props = OxmlElement('w:rPr')
+    for tag, val in (('w:color', '1A5FB4'), ('w:u', 'single')):
+        el = OxmlElement(tag)
+        el.set(qn('w:val'), val)
+        props.append(el)
+    run.append(props)
+    t = OxmlElement('w:t')
+    t.text = text
+    t.set(qn('xml:space'), 'preserve')
+    run.append(t)
+    link.append(run)
+    paragraph._p.append(link)
+
+
+def make_docx(path, header, panels, whale_png, img_dir):
+    """Word version of the page, one page: the header as editable text in two columns (with links), the ERDDAP
+    plots in a table, the whale section (map + legend) as one image, and an empty Deployment Notes box to type in."""
+    from docx import Document
+    from docx.enum.table import WD_ROW_HEIGHT_RULE
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.shared import Inches, Pt
+    doc = Document()
+    sec = doc.sections[0]
+    sec.page_width, sec.page_height = Inches(8.5), Inches(11)
+    sec.left_margin = sec.right_margin = Inches(0.5)
+    sec.top_margin = sec.bottom_margin = Inches(0.4)
+    doc.styles['Normal'].font.name = 'Calibri'
+    doc.styles['Normal'].font.size = Pt(10)
+
+    def tight(par, after=0):
+        par.paragraph_format.space_before = Pt(0)
+        par.paragraph_format.space_after = Pt(after)
+        par.paragraph_format.line_spacing = 1.0
+        return par
+
+    def header_par(par, label, parts):
+        tight(par, after=2)
+        par.add_run(f'{label}: ').bold = True
+        for i, (text, url) in enumerate(parts):
+            if url:
+                _docx_link(par, text, url)
+            else:
+                par.add_run(text)
+            if i < len(parts) - 1:
+                par.add_run(', ')
+
+    # Header in two columns like the PDF: the four short lines left, the two long ones right; extras full width
+    ht = doc.add_table(rows=1, cols=2)
+    for cell, w in zip(ht.rows[0].cells, (3.0, 4.5)):
+        cell.width = Inches(w)
+    for col, items in ((0, header[:4]), (1, header[4:6])):
+        cell = ht.cell(0, col)
+        for k, (label, parts) in enumerate(items):
+            header_par(cell.paragraphs[0] if k == 0 else cell.add_paragraph(), label, parts)
+    for label, parts in header[6:]:
+        header_par(doc.add_paragraph(), label, parts)
+    tight(doc.add_paragraph())
+
+    # 3 plots across, sized so the page (with an empty notes box) stays one page in Word
+    ncols = 3
+    width = Inches(2.05 if whale_png else 2.4)
+    table = doc.add_table(rows=-(-len(panels) // ncols), cols=ncols)
+    for i, (title, png) in enumerate(panels):
+        trimmed = os.path.join(img_dir, f'trim_{i}.png')
+        plt.imsave(trimmed, _trim(plt.imread(png)))
+        cell = table.cell(i // ncols, i % ncols)
+        cp = tight(cell.paragraphs[0])
+        cp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        cp.add_run(title).bold = True
+        pp = tight(cell.add_paragraph())
+        pp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        pp.add_run().add_picture(trimmed, width=width)
+    if whale_png:
+        wp = tight(doc.add_paragraph())
+        wp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        wp.add_run().add_picture(whale_png, width=Inches(5.4))
+
+    # Deployment notes: a bordered box to type in (grows as text is added)
+    np_ = tight(doc.add_paragraph(), after=2)
+    np_.paragraph_format.keep_with_next = True
+    np_.add_run('Deployment Notes:').bold = True
+    notes = doc.add_table(rows=1, cols=1)
+    notes.style = 'Table Grid'
+    notes.rows[0].height = Inches(1.0)
+    notes.rows[0].height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST
+    # Word always ends a document with an empty line after a table; make it 1 pt so it doesn't spill onto page 2
+    from docx.enum.text import WD_LINE_SPACING
+    end = tight(doc.add_paragraph())
+    end.paragraph_format.line_spacing_rule = WD_LINE_SPACING.EXACTLY
+    end.paragraph_format.line_spacing = Pt(1)
+    doc.save(path)
 
 
 def main(args):
@@ -468,7 +580,7 @@ def main(args):
               ('Project', [(api.get('project_name') or attr(info, 'NC_GLOBAL', 'project') or '-', None)]),
               ('Length', [(days + km, None)]),
               ('Sensors', [(', '.join(sens) or '-', None)]),
-              ('PIs/Project Managers', [(pis(info), None)]),
+              ('PIs/Project Managers', [(args.pis or pis(info), None)]),
               ('Data Delivered To', [(d, page if d == 'Robots4Whales' else None)
                                      for d in delivered_to(dep, sens, page)])]
     if 'dmon' in sens and not page:
@@ -484,10 +596,19 @@ def main(args):
 
     # the ERDDAP images are only needed to build the page - downloaded to a temporary folder, removed afterwards
     pdf = os.path.join(args.outputdir, f'{dep}_summary.pdf')
+    docx_path = pdf.replace('.pdf', '.docx')
     with tempfile.TemporaryDirectory() as img_dir:
         panels = erddap_images(dataset_id, info, img_dir)
-        make_pdf(pdf, header, panels, whale)
-    print(pdf)
+        whale_png = os.path.join(img_dir, 'whale.png') if whale else None
+        make_pdf(pdf, header, panels, whale, whale_png)
+        print(pdf)
+        if not args.no_docx:
+            try:
+                make_docx(docx_path, header, panels, whale_png, img_dir)
+                print(docx_path)
+            except ImportError:      # the PDF is the main product - don't fail the run over the Word copy
+                logging.warning('python-docx is not installed - no Word version made '
+                                '(conda install -c conda-forge python-docx)')
     return 0
 
 
@@ -495,7 +616,12 @@ if __name__ == '__main__':
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('deployment', help='deployment name, e.g. ru43-20261111T1711')
     p.add_argument('-o', '--outputdir', default='glider_deployment_summary',
-                   help='folder for the PDF (<deployment>_summary.pdf); created if needed. Default: glider_deployment_summary')
+                   help='folder for the PDF and Word versions (<deployment>_summary.pdf / .docx); created if needed. '
+                        'Default: glider_deployment_summary')
+    p.add_argument('--no-docx', action='store_true', help='make the PDF only, no Word version')
+    p.add_argument('--pis', default=None,
+                   help='PI names to show, e.g. "Name One, Name Two" - for when the dataset metadata has no '
+                        'Principal Investigator contributor_role (otherwise taken from contributor_name/role)')
     p.add_argument('--no-whales', action='store_true',
                    help='leave out the whale detection map (Robots4Whales still listed under Data Delivered To)')
     p.add_argument('-l', '--loglevel', default='info', choices=['debug', 'info', 'warning', 'error'])
